@@ -1,0 +1,16 @@
+# Dependencies (none currently, but reserved if any are added later).
+node_modules/
+
+# Derived database, server WAL files, and user-edited aliases.
+# Aliases are personal data (contact identifiers) and must never be committed.
+data/
+
+# Local copies of source databases. The default code path reads directly from
+# ~/Library/Messages/chat.db and ~/Library/Application Support/AddressBook,
+# but users may vendor copies into src/ for testing — those must not ship.
+src/
+
+# OS / editor cruft
+.DS_Store
+.env
+*.log

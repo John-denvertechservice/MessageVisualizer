@@ -1,0 +1,15 @@
+{
+  "name": "messages-visualizer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-only web UI for exploring aggregated stats from a macOS Apple Messages chat.db.",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "import": "node scripts/import.js",
+    "start": "node server/index.js",
+    "dev": "node server/index.js"
+  }
+}

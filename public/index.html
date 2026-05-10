@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Messages Visualizer</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <h1>Messages Visualizer</h1>
+    <p class="sub">Local-only dashboard for your Apple Messages history.</p>
+  </header>
+
+  <section class="cards" id="summary-cards" aria-label="High-level summary">
+    <!-- summary cards rendered by app.js -->
+  </section>
+
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Top contacts</h2>
+      <p class="hint">By total messages exchanged. Reciprocity = share you sent (0 = all incoming, 1 = all outgoing).</p>
+    </header>
+    <div class="chart-wrap"><canvas id="topContacts"></canvas></div>
+  </section>
+
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Contacts</h2>
+      <p class="hint">Names are auto-populated from your Mac's AddressBook (when copied into <code>src/</code>). Edit any field to override; clear it to fall back to the auto-populated value. Manual edits persist across re-imports.</p>
+    </header>
+    <div class="table-wrap">
+      <table class="contacts-table">
+        <thead>
+          <tr>
+            <th class="num">#</th>
+            <th>Identifier</th>
+            <th>Alias</th>
+            <th class="num">Total</th>
+            <th class="num">Sent</th>
+            <th class="num">Recv</th>
+            <th class="num">Recip</th>
+            <th>Last seen</th>
+          </tr>
+        </thead>
+        <tbody id="contacts-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Monthly volume</h2>
+      <p class="hint">Sent vs. received messages per calendar month.</p>
+    </header>
+    <div class="chart-wrap tall"><canvas id="monthly"></canvas></div>
+  </section>
+
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Hourly heatmap</h2>
+      <p class="hint">Day-of-week × hour-of-day. Darker = more messages. Local time.</p>
+    </header>
+    <div id="heatmap" class="heatmap"></div>
+    <div class="legend"><span>fewer</span><div class="legend-bar"></div><span>more</span></div>
+  </section>
+
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Reciprocity</h2>
+      <p class="hint">Each dot is a contact. X = total messages, Y = share you sent. Hover for details.</p>
+    </header>
+    <div class="chart-wrap tall"><canvas id="reciprocity"></canvas></div>
+  </section>
+
+  <footer>
+    <span id="meta-line"></span>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
