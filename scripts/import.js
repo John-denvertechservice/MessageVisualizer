@@ -61,6 +61,16 @@ function buildSchema(viz) {
       value TEXT
     );
 
+    CREATE TABLE promo_monthly_volume (
+      ym TEXT PRIMARY KEY,
+      promo_count INTEGER
+    );
+
+    CREATE TABLE promo_senders_summary (
+      handle_id INTEGER PRIMARY KEY,
+      promo_count INTEGER
+    );
+
     CREATE TABLE contacts (
       handle_id INTEGER PRIMARY KEY,
       identifier TEXT,
@@ -93,7 +103,8 @@ function buildSchema(viz) {
       service TEXT,
       item_type INTEGER,
       is_reaction INTEGER,
-      auth_type TEXT
+      auth_type TEXT,
+      promo_type TEXT
     );
 
     CREATE INDEX idx_messages_handle ON messages(handle_id);
@@ -252,8 +263,8 @@ function importMessages(chat, viz, oneOnOne) {
     INSERT INTO messages (
       message_id, chat_id, handle_id, is_from_me, ts_unix,
       year, month, dow, hour, text_len, has_attachment,
-      service, item_type, is_reaction, auth_type
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      service, item_type, is_reaction, auth_type, promo_type
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   let count = 0;
@@ -273,13 +284,17 @@ function importMessages(chat, viz, oneOnOne) {
       handleId = null;
     }
 
-    // Categorize auth messages
+    // Categorize auth & promo messages
     let authType = null;
+    let promoType = null;
     const text = r.text || '';
     if (!r.is_from_me && text) {
       const lower = text.toLowerCase();
       if (/(code|otp|verification|auth|login|passcode|security code|one time password)/.test(lower) && /\b\d{4,8}\b/.test(lower)) {
         authType = 'otp';
+      }
+      if (/(unsubscribe|opt out|reply stop|text stop|to stop|msg&data rates|msg&data|msg & data|promotional|discount|promo code|sale|offer)/.test(lower)) {
+        promoType = 'promo';
       }
     }
 
@@ -298,7 +313,8 @@ function importMessages(chat, viz, oneOnOne) {
       r.service,
       r.item_type ?? 0,
       r.is_reaction ?? 0,
-      authType
+      authType,
+      promoType
     );
     count++;
   }
@@ -405,7 +421,26 @@ function buildAggregates(viz) {
     GROUP BY handle_id;
   `);
 
-  log("aggregates: contact_summary, chat_summary, monthly_volume, hourly_heatmap, auth_monthly_volume, auth_senders_summary built");
+  viz.exec(`
+    INSERT INTO promo_monthly_volume (ym, promo_count)
+    SELECT
+      printf('%04d-%02d', year, month) AS ym,
+      COUNT(*) AS promo_count
+    FROM messages
+    WHERE promo_type = 'promo'
+    GROUP BY year, month
+    ORDER BY year, month;
+  `);
+
+  viz.exec(`
+    INSERT INTO promo_senders_summary (handle_id, promo_count)
+    SELECT handle_id, COUNT(*) AS promo_count
+    FROM messages
+    WHERE promo_type = 'promo' AND handle_id IS NOT NULL
+    GROUP BY handle_id;
+  `);
+
+  log("aggregates: contact_summary, chat_summary, monthly_volume, hourly_heatmap, auth_monthly_volume, auth_senders_summary, promo_monthly_volume, promo_senders_summary built");
 }
 
 function loadContactIndex(root) {

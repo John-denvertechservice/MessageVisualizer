@@ -178,19 +178,101 @@ function apiAuthStats() {
     ORDER BY ym ASC
   `).all();
 
-  const topSenders = db.prepare(`
-    SELECT c.identifier, c.display_name, a.auth_count
+  const allSenders = db.prepare(`
+    SELECT c.handle_id, c.identifier, c.display_name, a.auth_count
     FROM auth_senders_summary a
     JOIN contacts c ON a.handle_id = c.handle_id
     ORDER BY a.auth_count DESC
-    LIMIT 10
   `).all();
 
-  const totalAuths = db.prepare(`
+  const withAliases = applyAliases(allSenders);
+  
+  const topSenders = [];
+  let excludedCount = 0;
+  const excludedHandles = [];
+  
+  for (const s of withAliases) {
+    if (s.display_name) {
+      excludedCount += s.auth_count;
+      excludedHandles.push(s.handle_id);
+    } else {
+      topSenders.push(s);
+    }
+  }
+
+  let totalAuths = db.prepare(`
     SELECT SUM(auth_count) as total FROM auth_monthly_volume
   `).get().total || 0;
+  totalAuths -= excludedCount;
 
-  return { totalAuths, monthly, topSenders: applyAliases(topSenders) };
+  if (excludedHandles.length > 0) {
+    const placeholders = excludedHandles.map(() => '?').join(',');
+    const excludedMonthly = db.prepare(`
+      SELECT printf('%04d-%02d', year, month) AS ym, COUNT(*) as auth_count
+      FROM messages
+      WHERE auth_type = 'otp' AND handle_id IN (${placeholders})
+      GROUP BY year, month
+    `).all(...excludedHandles);
+    
+    const excludedMap = new Map(excludedMonthly.map(m => [m.ym, m.auth_count]));
+    for (const m of monthly) {
+      m.auth_count -= (excludedMap.get(m.ym) || 0);
+    }
+  }
+
+  return { totalAuths, monthly, topSenders: topSenders.slice(0, 10) };
+}
+
+function apiPromoStats() {
+  const monthly = db.prepare(`
+    SELECT ym, promo_count
+    FROM promo_monthly_volume
+    ORDER BY ym ASC
+  `).all();
+
+  const allSenders = db.prepare(`
+    SELECT c.handle_id, c.identifier, c.display_name, p.promo_count
+    FROM promo_senders_summary p
+    JOIN contacts c ON p.handle_id = c.handle_id
+    ORDER BY p.promo_count DESC
+  `).all();
+
+  const withAliases = applyAliases(allSenders);
+
+  const topSenders = [];
+  let excludedCount = 0;
+  const excludedHandles = [];
+
+  for (const s of withAliases) {
+    if (s.display_name) {
+      excludedCount += s.promo_count;
+      excludedHandles.push(s.handle_id);
+    } else {
+      topSenders.push(s);
+    }
+  }
+
+  let totalPromo = db.prepare(`
+    SELECT SUM(promo_count) as total FROM promo_monthly_volume
+  `).get().total || 0;
+  totalPromo -= excludedCount;
+
+  if (excludedHandles.length > 0) {
+    const placeholders = excludedHandles.map(() => '?').join(',');
+    const excludedMonthly = db.prepare(`
+      SELECT printf('%04d-%02d', year, month) AS ym, COUNT(*) as promo_count
+      FROM messages
+      WHERE promo_type = 'promo' AND handle_id IN (${placeholders})
+      GROUP BY year, month
+    `).all(...excludedHandles);
+    
+    const excludedMap = new Map(excludedMonthly.map(m => [m.ym, m.promo_count]));
+    for (const m of monthly) {
+      m.promo_count -= (excludedMap.get(m.ym) || 0);
+    }
+  }
+
+  return { totalPromo, monthly, topSenders: topSenders.slice(0, 10) };
 }
 
 function readJSONBody(req, limitBytes = 64 * 1024) {
@@ -275,6 +357,9 @@ const server = createServer(async (req, res) => {
     }
     if (path === "/api/auth-stats") {
       return sendJSON(res, 200, apiAuthStats());
+    }
+    if (path === "/api/promo-stats") {
+      return sendJSON(res, 200, apiPromoStats());
     }
     if (path.startsWith("/api/")) {
       return sendError(res, 404, "unknown endpoint");

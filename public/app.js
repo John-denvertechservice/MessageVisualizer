@@ -50,6 +50,7 @@ function renderSummary(data, authData) {
     { label: "Active contacts", value: fmt.format(data.active_contacts), sub: `of ${fmt.format(data.meta.contacts_count || 0)} total handles` },
     { label: "Active chats", value: fmt.format(data.active_chats), sub: `of ${fmt.format(data.meta.chats_count || 0)} total threads` },
     { label: "Total OTPs Received", value: fmt.format(authData?.totalAuths || 0), sub: `authentication codes` },
+    { label: "Total Promo Received", value: fmt.format(window.__promoData?.totalPromo || 0), sub: `promotional & spam` },
     { label: "Date range", value: `${fmtDate(t.first_ts)} → ${fmtDate(t.last_ts)}`, sub: `~${Math.round((t.last_ts - t.first_ts) / 86400 / 365.25 * 10) / 10} years` },
   ];
   const root = document.getElementById("summary-cards");
@@ -174,6 +175,60 @@ function renderAuthStats(authData) {
         labels: topSenders.map(r => r.display_name || r.identifier),
         datasets: [
           { label: "OTPs Sent", data: topSenders.map(r => r.auth_count), backgroundColor: palette.accent },
+        ],
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { ticks: { color: palette.muted }, grid: { color: "rgba(128,128,128,0.1)" } },
+          y: { ticks: { color: palette.ink, font: { size: 11 } }, grid: { display: false } },
+        },
+        plugins: { legend: { display: false } },
+      },
+    });
+  }
+}
+
+// ---------- Promotional stats -----------------------------------------------
+
+function renderPromoStats(promoData) {
+  if (!promoData) return;
+  const { monthly, topSenders } = promoData;
+
+  const ctxM = document.getElementById("promoMonthly");
+  if (ctxM) {
+    if (charts.promoMonthly) charts.promoMonthly.destroy();
+    charts.promoMonthly = new Chart(ctxM, {
+      type: "bar",
+      data: {
+        labels: monthly.map(r => r.ym),
+        datasets: [
+          { label: "Promo Received", data: monthly.map(r => r.promo_count), backgroundColor: palette.send + "aa" },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { ticks: { color: palette.muted, maxTicksLimit: 18 }, grid: { display: false } },
+          y: { beginAtZero: true, ticks: { color: palette.muted }, grid: { color: "rgba(128,128,128,0.1)" } },
+        },
+        plugins: { legend: { display: false } },
+      },
+    });
+  }
+
+  const ctxS = document.getElementById("topPromoSenders");
+  if (ctxS) {
+    if (charts.topPromoSenders) charts.topPromoSenders.destroy();
+    charts.topPromoSenders = new Chart(ctxS, {
+      type: "bar",
+      data: {
+        labels: topSenders.map(r => r.display_name || r.identifier),
+        datasets: [
+          { label: "Promo Sent", data: topSenders.map(r => r.promo_count), backgroundColor: palette.send },
         ],
       },
       options: {
@@ -367,30 +422,38 @@ async function onAliasBlur(e) {
 
 async function refreshContactViews() {
   // Re-fetch the endpoints whose labels depend on aliases and rebuild
-  // the affected charts + table.
-  const [top, recip, auth] = await Promise.all([
+  // the affected charts + table. Summary is also refreshed to reflect
+  // changes in auth/promo totals.
+  const [summary, top, recip, auth, promo] = await Promise.all([
+    fetchJSON("/api/summary"),
     fetchJSON("/api/contacts/top?limit=20"),
     fetchJSON("/api/reciprocity?min=50"),
-    fetchJSON("/api/auth-stats")
+    fetchJSON("/api/auth-stats"),
+    fetchJSON("/api/promo-stats")
   ]);
+  window.__promoData = promo;
+  renderSummary(summary, auth);
   renderTopContacts(top);
   renderContactsTable(top);
   renderReciprocity(recip);
   renderAuthStats(auth);
+  renderPromoStats(promo);
 }
 
 // ---------- Bootstrap -------------------------------------------------------
 
 (async function main() {
   try {
-    const [summary, top, monthly, heatmap, recip, authStats] = await Promise.all([
+    const [summary, top, monthly, heatmap, recip, authStats, promoStats] = await Promise.all([
       fetchJSON("/api/summary"),
       fetchJSON("/api/contacts/top?limit=20"),
       fetchJSON("/api/monthly"),
       fetchJSON("/api/heatmap"),
       fetchJSON("/api/reciprocity?min=50"),
       fetchJSON("/api/auth-stats"),
+      fetchJSON("/api/promo-stats"),
     ]);
+    window.__promoData = promoStats; // Store for renderSummary access
     renderSummary(summary, authStats);
     renderTopContacts(top);
     renderContactsTable(top);
@@ -398,6 +461,7 @@ async function refreshContactViews() {
     renderHeatmap(heatmap);
     renderReciprocity(recip);
     renderAuthStats(authStats);
+    renderPromoStats(promoStats);
   } catch (e) {
     console.error(e);
     document.body.append(el("pre", { class: "panel" }, `Failed to load: ${e.message}`));
