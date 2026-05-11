@@ -11,5 +11,9 @@
     "import": "node scripts/import.js",
     "start": "node server/index.js",
     "dev": "node server/index.js"
+  },
+  "dependencies": {
+    "natural": "^8.1.1",
+    "stopword": "^3.1.5"
   }
 }

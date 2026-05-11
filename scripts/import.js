@@ -6,7 +6,27 @@ import { DatabaseSync } from "node:sqlite";
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import natural from "natural";
+import { removeStopwords, eng } from "stopword";
 import { buildContactIndex, lookupContact } from "./contacts.js";
+
+const tokenizer = new natural.WordTokenizer();
+const sentimentAnalyzer = new natural.SentimentAnalyzer(
+  "English",
+  natural.PorterStemmer,
+  "afinn",
+);
+
+function analyzeText(text) {
+  if (!text) return { sentiment: null, tokens: [] };
+  const raw = tokenizer.tokenize(text.toLowerCase()) || [];
+  const cleaned = raw.filter(
+    (t) => t.length >= 3 && !/^\d+$/.test(t) && !/^https?$/.test(t),
+  );
+  const tokens = removeStopwords(cleaned, eng);
+  if (tokens.length === 0) return { sentiment: null, tokens: [] };
+  return { sentiment: sentimentAnalyzer.getSentiment(tokens), tokens };
+}
 
 // Defaults point at the live macOS paths so a fresh checkout on any Mac
 // works with `npm run import` once Terminal has Full Disk Access. Override
@@ -163,6 +183,30 @@ function buildSchema(viz) {
       handle_id INTEGER PRIMARY KEY,
       auth_count INTEGER
     );
+
+    CREATE TABLE contact_sentiment (
+      identifier TEXT PRIMARY KEY,
+      sent_msgs INTEGER,
+      received_msgs INTEGER,
+      sent_sentiment_avg REAL,
+      received_sentiment_avg REAL
+    );
+
+    CREATE TABLE contact_top_terms (
+      identifier TEXT,
+      rank INTEGER,
+      term TEXT,
+      score REAL,
+      PRIMARY KEY (identifier, rank)
+    );
+
+    CREATE TABLE sentiment_monthly (
+      ym TEXT PRIMARY KEY,
+      sent_avg REAL,
+      received_avg REAL,
+      sent_count INTEGER,
+      received_count INTEGER
+    );
   `);
 }
 
@@ -230,6 +274,29 @@ function buildOneOnOneMap(chat) {
 }
 
 function importMessages(chat, viz, oneOnOne) {
+  // Per-handle token bags + sentiment accumulators. Built during the main
+  // message pass so we don't have to re-iterate. Aggregated by identifier
+  // (not handle) later, since one contact can have multiple handles.
+  const nlpByHandle = new Map(); // handle_id -> { tokens: Map<word,count>, sentSum, sentCount, recvSum, recvCount }
+  const sentByMonth = new Map(); // 'YYYY-MM' -> { sentSum, sentCount, recvSum, recvCount }
+
+  function ensureHandle(id) {
+    let row = nlpByHandle.get(id);
+    if (!row) {
+      row = { tokens: new Map(), sentSum: 0, sentCount: 0, recvSum: 0, recvCount: 0 };
+      nlpByHandle.set(id, row);
+    }
+    return row;
+  }
+  function ensureMonth(ym) {
+    let row = sentByMonth.get(ym);
+    if (!row) {
+      row = { sentSum: 0, sentCount: 0, recvSum: 0, recvCount: 0 };
+      sentByMonth.set(ym, row);
+    }
+    return row;
+  }
+
   // Pull per-message rows joined to chat_message_join. A message can join
   // multiple chats; GROUP BY m.ROWID keeps one row per message.
   // Apple's `date` field is nanoseconds since 2001-01-01 UTC for modern rows.
@@ -298,6 +365,33 @@ function importMessages(chat, viz, oneOnOne) {
       }
     }
 
+    // NLP: skip reactions, auth/promo, non-text rows. handleId is the
+    // counterparty for both directions, so all stats roll up to one contact.
+    const eligible =
+      r.item_type === 0 && !r.is_reaction && !authType && !promoType && text && handleId != null;
+    if (eligible) {
+      const { sentiment, tokens } = analyzeText(text);
+      if (sentiment != null) {
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        const monthRow = ensureMonth(ym);
+        const handleRow = ensureHandle(handleId);
+        if (r.is_from_me === 1) {
+          monthRow.sentSum += sentiment; monthRow.sentCount += 1;
+          handleRow.sentSum += sentiment; handleRow.sentCount += 1;
+        } else {
+          monthRow.recvSum += sentiment; monthRow.recvCount += 1;
+          handleRow.recvSum += sentiment; handleRow.recvCount += 1;
+        }
+        // Token bag is intentionally side-agnostic — top terms describe the
+        // conversation, not which party said them. Limit to <=200 tokens/msg
+        // so a single pasted blob can't dominate a contact's vocabulary.
+        const slice = tokens.length > 200 ? tokens.slice(0, 200) : tokens;
+        for (const tok of slice) {
+          handleRow.tokens.set(tok, (handleRow.tokens.get(tok) || 0) + 1);
+        }
+      }
+    }
+
     insert.run(
       r.message_id,
       r.chat_id ?? null,
@@ -320,7 +414,112 @@ function importMessages(chat, viz, oneOnOne) {
   }
   viz.exec("COMMIT");
   log(`messages: ${count} inserted`);
-  return count;
+  return { count, nlpByHandle, sentByMonth };
+}
+
+function buildNlpAggregates(viz, nlpByHandle, sentByMonth) {
+  // Roll handle-level NLP up to identifier-level using contact_summary's
+  // handle_ids field. Only contacts matched to AddressBook (display_name set)
+  // and with enough messages get TF-IDF; everyone else still gets sentiment.
+  const contacts = viz.prepare(`
+    SELECT identifier, display_name, handle_ids, total_messages
+    FROM contact_summary
+    WHERE total_messages > 0
+  `).all();
+
+  const TFIDF_MIN_MSGS = 20;
+  const perContact = []; // { identifier, tokens: Map, sentSum, sentCount, recvSum, recvCount, eligibleForTfidf }
+
+  for (const c of contacts) {
+    const handleIds = String(c.handle_ids || "")
+      .split(",")
+      .map((s) => Number.parseInt(s, 10))
+      .filter(Number.isFinite);
+    const merged = { tokens: new Map(), sentSum: 0, sentCount: 0, recvSum: 0, recvCount: 0 };
+    for (const h of handleIds) {
+      const src = nlpByHandle.get(h);
+      if (!src) continue;
+      merged.sentSum += src.sentSum;
+      merged.sentCount += src.sentCount;
+      merged.recvSum += src.recvSum;
+      merged.recvCount += src.recvCount;
+      for (const [tok, n] of src.tokens) {
+        merged.tokens.set(tok, (merged.tokens.get(tok) || 0) + n);
+      }
+    }
+    perContact.push({
+      identifier: c.identifier,
+      ...merged,
+      eligibleForTfidf: !!c.display_name && c.total_messages >= TFIDF_MIN_MSGS,
+    });
+  }
+
+  // contact_sentiment: insert anyone who had at least one scored message.
+  const insertSent = viz.prepare(`
+    INSERT INTO contact_sentiment (identifier, sent_msgs, received_msgs, sent_sentiment_avg, received_sentiment_avg)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  let sentRows = 0;
+  for (const c of perContact) {
+    if (c.sentCount === 0 && c.recvCount === 0) continue;
+    insertSent.run(
+      c.identifier,
+      c.sentCount,
+      c.recvCount,
+      c.sentCount > 0 ? c.sentSum / c.sentCount : null,
+      c.recvCount > 0 ? c.recvSum / c.recvCount : null,
+    );
+    sentRows++;
+  }
+
+  // TF-IDF top terms — natural.TfIdf wants one document per contact. We
+  // expand each Map<token,count> back to an array so token frequency is
+  // preserved (TfIdf counts occurrences in the passed array).
+  const tfidf = new natural.TfIdf();
+  const tfidfContacts = perContact.filter((c) => c.eligibleForTfidf && c.tokens.size > 0);
+  for (const c of tfidfContacts) {
+    const doc = [];
+    for (const [tok, n] of c.tokens) {
+      for (let i = 0; i < n; i++) doc.push(tok);
+    }
+    tfidf.addDocument(doc);
+  }
+
+  const insertTerm = viz.prepare(`
+    INSERT INTO contact_top_terms (identifier, rank, term, score) VALUES (?, ?, ?, ?)
+  `);
+  let termRows = 0;
+  tfidfContacts.forEach((c, docIdx) => {
+    // listTerms returns sorted desc by tfidf score; take top 20.
+    const terms = tfidf.listTerms(docIdx).slice(0, 20);
+    terms.forEach((t, i) => {
+      insertTerm.run(c.identifier, i + 1, t.term, t.tfidf);
+      termRows++;
+    });
+  });
+
+  // Monthly sentiment trend.
+  const insertMonth = viz.prepare(`
+    INSERT INTO sentiment_monthly (ym, sent_avg, received_avg, sent_count, received_count)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const months = [...sentByMonth.keys()].sort();
+  for (const ym of months) {
+    const r = sentByMonth.get(ym);
+    insertMonth.run(
+      ym,
+      r.sentCount > 0 ? r.sentSum / r.sentCount : null,
+      r.recvCount > 0 ? r.recvSum / r.recvCount : null,
+      r.sentCount,
+      r.recvCount,
+    );
+  }
+
+  log(
+    `nlp: contact_sentiment=${sentRows}, contact_top_terms=${termRows} ` +
+      `(${tfidfContacts.length} contacts, min ${TFIDF_MIN_MSGS} msgs + named), ` +
+      `sentiment_monthly=${months.length}`,
+  );
 }
 
 function buildAggregates(viz) {
@@ -489,11 +688,12 @@ function main() {
   const contactsResult = importContacts(chat, viz, contactIndex);
   const chatsCount = importChats(chat, viz);
   const oneOnOne = buildOneOnOneMap(chat);
-  const messagesCount = importMessages(chat, viz, oneOnOne);
+  const { count: messagesCount, nlpByHandle, sentByMonth } = importMessages(chat, viz, oneOnOne);
   buildAggregates(viz);
+  buildNlpAggregates(viz, nlpByHandle, sentByMonth);
 
   writeMeta(viz, {
-    schema_version: "1",
+    schema_version: "2",
     imported_at: new Date().toISOString(),
     source_chat_db: CHAT_DB_PATH,
     source_chat_db_size: statSync(CHAT_DB_PATH).size,

@@ -358,7 +358,7 @@ function renderContactsTable(rows) {
   tbody.innerHTML = "";
   rows.forEach((r, i) => {
     const lastSeen = r.last_message_unix ? fmtDate(r.last_message_unix) : "";
-    const tr = el("tr");
+    const tr = el("tr", { class: "contact-row", data: { identifier: r.identifier } });
     tr.append(el("td", { class: "num" }, String(i + 1)));
     tr.append(el("td", { class: "identifier" }, r.identifier));
 
@@ -380,8 +380,87 @@ function renderContactsTable(rows) {
     tr.append(el("td", { class: "num" }, fmt.format(r.received_count)));
     tr.append(el("td", { class: "num" }, fmtPct(r.reciprocity)));
     tr.append(el("td", {}, lastSeen));
+
+    tr.addEventListener("mouseenter", () => showTermsPopover(tr, r.identifier));
+    tr.addEventListener("mouseleave", hideTermsPopover);
     tbody.append(tr);
   });
+}
+
+// ---------- Top-terms hover popover ----------------------------------------
+// Single shared popover, lazily fetched + cached by identifier. pointer-events
+// is none in CSS so the popover never steals the row's mouseleave.
+
+const termsCache = new Map();
+let termsPopover = null;
+let termsHoverTimer = null;
+let termsActiveId = null;
+
+function getTermsPopover() {
+  if (!termsPopover) {
+    termsPopover = el("div", { class: "terms-popover" });
+    termsPopover.style.display = "none";
+    document.body.append(termsPopover);
+  }
+  return termsPopover;
+}
+
+function hideTermsPopover() {
+  if (termsHoverTimer) { clearTimeout(termsHoverTimer); termsHoverTimer = null; }
+  termsActiveId = null;
+  if (termsPopover) termsPopover.style.display = "none";
+}
+
+function fetchTopTerms(identifier) {
+  if (termsCache.has(identifier)) return termsCache.get(identifier);
+  const p = fetchJSON(`/api/contact-top-terms?identifier=${encodeURIComponent(identifier)}`)
+    .catch((e) => { termsCache.delete(identifier); throw e; });
+  termsCache.set(identifier, p);
+  return p;
+}
+
+function showTermsPopover(row, identifier) {
+  if (termsHoverTimer) clearTimeout(termsHoverTimer);
+  termsActiveId = identifier;
+  // Small delay so flicking the cursor across rows doesn't issue a fetch
+  // for every row in passing.
+  termsHoverTimer = setTimeout(async () => {
+    let data;
+    try { data = await fetchTopTerms(identifier); }
+    catch { return; }
+    // The user may have moved on while we awaited; only render if still hovered.
+    if (termsActiveId !== identifier) return;
+
+    const pop = getTermsPopover();
+    pop.innerHTML = "";
+    if (!data.terms || data.terms.length === 0) {
+      pop.append(el("div", { class: "terms-empty" },
+        "No top terms — needs a name + at least 20 messages."));
+    } else {
+      pop.append(el("div", { class: "terms-title" }, "Top vocabulary"));
+      const chipRow = el("div", { class: "terms-chips" });
+      for (const t of data.terms.slice(0, 8)) {
+        chipRow.append(el("span", { class: "term-chip" }, t.term));
+      }
+      pop.append(chipRow);
+    }
+    // Make it visible offscreen first to measure, then place. Prefer right
+    // of the row, fall back to below if there isn't room.
+    pop.style.display = "block";
+    pop.style.left = "-9999px";
+    pop.style.top = "0px";
+    const popRect = pop.getBoundingClientRect();
+    const rect = row.getBoundingClientRect();
+    const margin = 12;
+    let left = rect.right + 8;
+    let top = rect.top;
+    if (left + popRect.width > window.innerWidth - margin) {
+      left = Math.max(margin, Math.min(rect.left, window.innerWidth - popRect.width - margin));
+      top = rect.bottom + 4;
+    }
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+  }, 180);
 }
 
 function onAliasKey(e) {

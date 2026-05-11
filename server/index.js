@@ -186,11 +186,11 @@ function apiAuthStats() {
   `).all();
 
   const withAliases = applyAliases(allSenders);
-  
+
   const topSenders = [];
   let excludedCount = 0;
   const excludedHandles = [];
-  
+
   for (const s of withAliases) {
     if (s.display_name) {
       excludedCount += s.auth_count;
@@ -213,7 +213,7 @@ function apiAuthStats() {
       WHERE auth_type = 'otp' AND handle_id IN (${placeholders})
       GROUP BY year, month
     `).all(...excludedHandles);
-    
+
     const excludedMap = new Map(excludedMonthly.map(m => [m.ym, m.auth_count]));
     for (const m of monthly) {
       m.auth_count -= (excludedMap.get(m.ym) || 0);
@@ -265,7 +265,7 @@ function apiPromoStats() {
       WHERE promo_type = 'promo' AND handle_id IN (${placeholders})
       GROUP BY year, month
     `).all(...excludedHandles);
-    
+
     const excludedMap = new Map(excludedMonthly.map(m => [m.ym, m.promo_count]));
     for (const m of monthly) {
       m.promo_count -= (excludedMap.get(m.ym) || 0);
@@ -273,6 +273,51 @@ function apiPromoStats() {
   }
 
   return { totalPromo, monthly, topSenders: topSenders.slice(0, 10) };
+}
+
+function apiSentimentMonthly() {
+  return db.prepare(`
+    SELECT ym, sent_avg, received_avg, sent_count, received_count
+    FROM sentiment_monthly
+    ORDER BY ym ASC
+  `).all();
+}
+
+function apiContactSentiment(limit) {
+  // Join on contact_summary so callers get total_messages for sorting/display
+  // without a second round-trip, and pass through applyAliases so user-set
+  // names override AddressBook display_name.
+  const rows = db.prepare(`
+    SELECT
+      cs.identifier,
+      cs.display_name,
+      cs.total_messages,
+      s.sent_msgs,
+      s.received_msgs,
+      s.sent_sentiment_avg,
+      s.received_sentiment_avg
+    FROM contact_sentiment s
+    JOIN contact_summary cs ON cs.identifier = s.identifier
+    WHERE cs.total_messages > 0
+    ORDER BY cs.total_messages DESC
+    LIMIT ?
+  `).all(limit);
+  return applyAliases(rows);
+}
+
+function apiContactTopTerms(identifier) {
+  const terms = db.prepare(`
+    SELECT rank, term, score
+    FROM contact_top_terms
+    WHERE identifier = ?
+    ORDER BY rank ASC
+  `).all(identifier);
+  const contact = db.prepare(`
+    SELECT identifier, display_name, total_messages
+    FROM contact_summary
+    WHERE identifier = ?
+  `).get(identifier);
+  return { contact: contact ? applyAliases([contact])[0] : null, terms };
 }
 
 function readJSONBody(req, limitBytes = 64 * 1024) {
@@ -360,6 +405,18 @@ const server = createServer(async (req, res) => {
     }
     if (path === "/api/promo-stats") {
       return sendJSON(res, 200, apiPromoStats());
+    }
+    if (path === "/api/sentiment-monthly") {
+      return sendJSON(res, 200, apiSentimentMonthly());
+    }
+    if (path === "/api/contact-sentiment") {
+      const limit = clampInt(url.searchParams.get("limit"), 1, 200, 25);
+      return sendJSON(res, 200, apiContactSentiment(limit));
+    }
+    if (path === "/api/contact-top-terms") {
+      const id = url.searchParams.get("identifier");
+      if (!id) return sendError(res, 400, "identifier required");
+      return sendJSON(res, 200, apiContactTopTerms(id));
     }
     if (path.startsWith("/api/")) {
       return sendError(res, 404, "unknown endpoint");
