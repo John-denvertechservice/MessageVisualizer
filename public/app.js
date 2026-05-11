@@ -42,34 +42,40 @@ function el(tag, attrs = {}, children = []) {
 
 // ---------- Summary cards ---------------------------------------------------
 
-function renderSummary(data) {
+function renderSummary(data, authData) {
   const t = data.totals;
   const cards = [
     { label: "Conversational messages", value: fmt.format(t.total_messages), sub: `excludes reactions & system events` },
     { label: "Sent / Received", value: `${fmt.format(t.sent)} / ${fmt.format(t.received)}`, sub: `${fmtPct(t.sent / (t.total_messages || 1))} sent` },
     { label: "Active contacts", value: fmt.format(data.active_contacts), sub: `of ${fmt.format(data.meta.contacts_count || 0)} total handles` },
     { label: "Active chats", value: fmt.format(data.active_chats), sub: `of ${fmt.format(data.meta.chats_count || 0)} total threads` },
-    { label: "Attachments", value: fmt.format(t.attachments), sub: `media, screenshots, files` },
+    { label: "Total OTPs Received", value: fmt.format(authData?.totalAuths || 0), sub: `authentication codes` },
     { label: "Date range", value: `${fmtDate(t.first_ts)} → ${fmtDate(t.last_ts)}`, sub: `~${Math.round((t.last_ts - t.first_ts) / 86400 / 365.25 * 10) / 10} years` },
   ];
   const root = document.getElementById("summary-cards");
-  root.innerHTML = "";
-  for (const c of cards) {
-    root.append(el("div", { class: "card" }, [
-      el("div", { class: "label" }, c.label),
-      el("div", { class: "value" }, c.value),
-      el("div", { class: "sub" }, c.sub),
-    ]));
+  if (root) {
+    root.innerHTML = "";
+    for (const c of cards) {
+      root.append(el("div", { class: "card" }, [
+        el("div", { class: "label" }, c.label),
+        el("div", { class: "value" }, c.value),
+        el("div", { class: "sub" }, c.sub),
+      ]));
+    }
   }
-  document.getElementById("meta-line").textContent =
-    `Imported ${new Date(data.meta.imported_at).toLocaleString()} · ${fmt.format(Number(data.meta.source_chat_db_size) / 1_000_000 | 0)} MB chat.db`;
+  const metaLine = document.getElementById("meta-line");
+  if (metaLine) {
+    metaLine.textContent =
+      `Imported ${new Date(data.meta.imported_at).toLocaleString()} · ${fmt.format(Number(data.meta.source_chat_db_size) / 1_000_000 | 0)} MB chat.db`;
+  }
 }
 
 // ---------- Top contacts (stacked bar: sent vs received) -------------------
 
 function renderTopContacts(rows) {
-  const labels = rows.map(r => r.display_name || r.identifier);
   const ctx = document.getElementById("topContacts");
+  if (!ctx) return;
+  const labels = rows.map(r => r.display_name || r.identifier);
   if (charts.topContacts) charts.topContacts.destroy();
   charts.topContacts = new Chart(ctx, {
     type: "bar",
@@ -107,6 +113,7 @@ function renderTopContacts(rows) {
 
 function renderMonthly(rows) {
   const ctx = document.getElementById("monthly");
+  if (!ctx) return;
   if (charts.monthly) charts.monthly.destroy();
   charts.monthly = new Chart(ctx, {
     type: "line",
@@ -130,10 +137,64 @@ function renderMonthly(rows) {
   });
 }
 
+// ---------- Authentication stats --------------------------------------------
+
+function renderAuthStats(authData) {
+  const { monthly, topSenders } = authData;
+
+  const ctxM = document.getElementById("authMonthly");
+  if (ctxM) {
+    if (charts.authMonthly) charts.authMonthly.destroy();
+    charts.authMonthly = new Chart(ctxM, {
+      type: "bar",
+      data: {
+        labels: monthly.map(r => r.ym),
+        datasets: [
+          { label: "OTPs Received", data: monthly.map(r => r.auth_count), backgroundColor: palette.accent + "aa" },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { ticks: { color: palette.muted, maxTicksLimit: 18 }, grid: { display: false } },
+          y: { beginAtZero: true, ticks: { color: palette.muted }, grid: { color: "rgba(128,128,128,0.1)" } },
+        },
+        plugins: { legend: { display: false } },
+      },
+    });
+  }
+
+  const ctxS = document.getElementById("topAuthSenders");
+  if (ctxS) {
+    if (charts.topAuthSenders) charts.topAuthSenders.destroy();
+    charts.topAuthSenders = new Chart(ctxS, {
+      type: "bar",
+      data: {
+        labels: topSenders.map(r => r.display_name || r.identifier),
+        datasets: [
+          { label: "OTPs Sent", data: topSenders.map(r => r.auth_count), backgroundColor: palette.accent },
+        ],
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { ticks: { color: palette.muted }, grid: { color: "rgba(128,128,128,0.1)" } },
+          y: { ticks: { color: palette.ink, font: { size: 11 } }, grid: { display: false } },
+        },
+        plugins: { legend: { display: false } },
+      },
+    });
+  }
+}
+
 // ---------- Hourly heatmap (CSS grid) ---------------------------------------
 
 function renderHeatmap({ grid }) {
   const root = document.getElementById("heatmap");
+  if (!root) return;
   root.innerHTML = "";
 
   let max = 0;
@@ -188,6 +249,7 @@ function parseColor(css) {
 
 function renderReciprocity(rows) {
   const ctx = document.getElementById("reciprocity");
+  if (!ctx) return;
   const data = rows.map(r => ({
     x: r.total_messages,
     y: r.reciprocity ?? 0,
@@ -237,6 +299,7 @@ function renderReciprocity(rows) {
 
 function renderContactsTable(rows) {
   const tbody = document.getElementById("contacts-tbody");
+  if (!tbody) return;
   tbody.innerHTML = "";
   rows.forEach((r, i) => {
     const lastSeen = r.last_message_unix ? fmtDate(r.last_message_unix) : "";
@@ -303,34 +366,38 @@ async function onAliasBlur(e) {
 }
 
 async function refreshContactViews() {
-  // Re-fetch the two endpoints whose labels depend on aliases and rebuild
-  // the affected charts + table. Monthly/heatmap don't reference aliases.
-  const [top, recip] = await Promise.all([
+  // Re-fetch the endpoints whose labels depend on aliases and rebuild
+  // the affected charts + table.
+  const [top, recip, auth] = await Promise.all([
     fetchJSON("/api/contacts/top?limit=20"),
     fetchJSON("/api/reciprocity?min=50"),
+    fetchJSON("/api/auth-stats")
   ]);
   renderTopContacts(top);
   renderContactsTable(top);
   renderReciprocity(recip);
+  renderAuthStats(auth);
 }
 
 // ---------- Bootstrap -------------------------------------------------------
 
 (async function main() {
   try {
-    const [summary, top, monthly, heatmap, recip] = await Promise.all([
+    const [summary, top, monthly, heatmap, recip, authStats] = await Promise.all([
       fetchJSON("/api/summary"),
       fetchJSON("/api/contacts/top?limit=20"),
       fetchJSON("/api/monthly"),
       fetchJSON("/api/heatmap"),
       fetchJSON("/api/reciprocity?min=50"),
+      fetchJSON("/api/auth-stats"),
     ]);
-    renderSummary(summary);
+    renderSummary(summary, authStats);
     renderTopContacts(top);
     renderContactsTable(top);
     renderMonthly(monthly);
     renderHeatmap(heatmap);
     renderReciprocity(recip);
+    renderAuthStats(authStats);
   } catch (e) {
     console.error(e);
     document.body.append(el("pre", { class: "panel" }, `Failed to load: ${e.message}`));

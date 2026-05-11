@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Authentication Stats - Messages Visualizer</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <h1>Authentication Stats</h1>
+    <p class="sub"><a href="/">← Back to Dashboard</a></p>
+  </header>
+
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Authentication messages</h2>
+      <p class="hint">One-time passwords and security codes over time.</p>
+    </header>
+    <div class="chart-wrap tall"><canvas id="authMonthly"></canvas></div>
+  </section>
+
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Top OTP senders</h2>
+      <p class="hint">Contacts/services sending the most authentication codes.</p>
+    </header>
+    <div class="chart-wrap"><canvas id="topAuthSenders"></canvas></div>
+  </section>
+
+  <footer>
+    <span id="meta-line"></span>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

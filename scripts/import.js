@@ -31,7 +31,18 @@ function openReadOnly(path) {
   if (!existsSync(path)) {
     throw new Error(`source db not found: ${path}`);
   }
-  return new DatabaseSync(path, { readOnly: true });
+  try {
+    return new DatabaseSync(path, { readOnly: true });
+  } catch (err) {
+    if (err.code === 'ERR_SQLITE_ERROR' && err.message.includes('unable to open database file')) {
+      console.error(`\n[import] ERROR: Cannot read ${path}`);
+      console.error(`[import] This is usually a macOS permission issue.`);
+      console.error(`[import] Please grant your Terminal 'Full Disk Access' in:`);
+      console.error(`[import] System Settings → Privacy & Security → Full Disk Access\n`);
+      process.exit(1);
+    }
+    throw err;
+  }
 }
 
 function buildSchema(viz) {
@@ -81,7 +92,8 @@ function buildSchema(viz) {
       has_attachment INTEGER,
       service TEXT,
       item_type INTEGER,
-      is_reaction INTEGER
+      is_reaction INTEGER,
+      auth_type TEXT
     );
 
     CREATE INDEX idx_messages_handle ON messages(handle_id);
@@ -129,6 +141,16 @@ function buildSchema(viz) {
       hour INTEGER,
       count INTEGER,
       PRIMARY KEY (dow, hour)
+    );
+
+    CREATE TABLE auth_monthly_volume (
+      ym TEXT PRIMARY KEY,
+      auth_count INTEGER
+    );
+
+    CREATE TABLE auth_senders_summary (
+      handle_id INTEGER PRIMARY KEY,
+      auth_count INTEGER
     );
   `);
 }
@@ -215,6 +237,7 @@ function importMessages(chat, viz, oneOnOne) {
         END + 978307200 AS INTEGER
       ) AS ts_unix,
       LENGTH(COALESCE(m.text, '')) AS text_len,
+      m.text AS text,
       m.cache_has_attachments AS has_attachment,
       m.service AS service,
       m.item_type AS item_type,
@@ -229,8 +252,8 @@ function importMessages(chat, viz, oneOnOne) {
     INSERT INTO messages (
       message_id, chat_id, handle_id, is_from_me, ts_unix,
       year, month, dow, hour, text_len, has_attachment,
-      service, item_type, is_reaction
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      service, item_type, is_reaction, auth_type
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   let count = 0;
@@ -250,6 +273,16 @@ function importMessages(chat, viz, oneOnOne) {
       handleId = null;
     }
 
+    // Categorize auth messages
+    let authType = null;
+    const text = r.text || '';
+    if (!r.is_from_me && text) {
+      const lower = text.toLowerCase();
+      if (/(code|otp|verification|auth|login|passcode|security code|one time password)/.test(lower) && /\b\d{4,8}\b/.test(lower)) {
+        authType = 'otp';
+      }
+    }
+
     insert.run(
       r.message_id,
       r.chat_id ?? null,
@@ -264,7 +297,8 @@ function importMessages(chat, viz, oneOnOne) {
       r.has_attachment ? 1 : 0,
       r.service,
       r.item_type ?? 0,
-      r.is_reaction ?? 0
+      r.is_reaction ?? 0,
+      authType
     );
     count++;
   }
@@ -352,7 +386,26 @@ function buildAggregates(viz) {
     GROUP BY dow, hour;
   `);
 
-  log("aggregates: contact_summary, chat_summary, monthly_volume, hourly_heatmap built");
+  viz.exec(`
+    INSERT INTO auth_monthly_volume (ym, auth_count)
+    SELECT
+      printf('%04d-%02d', year, month) AS ym,
+      COUNT(*) AS auth_count
+    FROM messages
+    WHERE auth_type = 'otp'
+    GROUP BY year, month
+    ORDER BY year, month;
+  `);
+
+  viz.exec(`
+    INSERT INTO auth_senders_summary (handle_id, auth_count)
+    SELECT handle_id, COUNT(*) AS auth_count
+    FROM messages
+    WHERE auth_type = 'otp' AND handle_id IS NOT NULL
+    GROUP BY handle_id;
+  `);
+
+  log("aggregates: contact_summary, chat_summary, monthly_volume, hourly_heatmap, auth_monthly_volume, auth_senders_summary built");
 }
 
 function loadContactIndex(root) {

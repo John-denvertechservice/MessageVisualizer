@@ -171,6 +171,28 @@ function apiTopChats(limit) {
   `).all(limit);
 }
 
+function apiAuthStats() {
+  const monthly = db.prepare(`
+    SELECT ym, auth_count
+    FROM auth_monthly_volume
+    ORDER BY ym ASC
+  `).all();
+
+  const topSenders = db.prepare(`
+    SELECT c.identifier, c.display_name, a.auth_count
+    FROM auth_senders_summary a
+    JOIN contacts c ON a.handle_id = c.handle_id
+    ORDER BY a.auth_count DESC
+    LIMIT 10
+  `).all();
+
+  const totalAuths = db.prepare(`
+    SELECT SUM(auth_count) as total FROM auth_monthly_volume
+  `).get().total || 0;
+
+  return { totalAuths, monthly, topSenders: applyAliases(topSenders) };
+}
+
 function readJSONBody(req, limitBytes = 64 * 1024) {
   return new Promise((resolve, reject) => {
     let total = 0;
@@ -250,6 +272,9 @@ const server = createServer(async (req, res) => {
     if (path === "/api/chats/top") {
       const limit = clampInt(url.searchParams.get("limit"), 1, 200, 25);
       return sendJSON(res, 200, apiTopChats(limit));
+    }
+    if (path === "/api/auth-stats") {
+      return sendJSON(res, 200, apiAuthStats());
     }
     if (path.startsWith("/api/")) {
       return sendError(res, 404, "unknown endpoint");
