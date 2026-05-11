@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tone - Messages Visualizer</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <h1>Tone</h1>
+    <p class="sub"><a href="/">← Back to Dashboard</a></p>
+  </header>
+
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Monthly sentiment</h2>
+      <p class="hint">Average AFINN sentiment per month, split by direction. Positive = warmer language, negative = cooler. Auth/promo messages and reactions are excluded.</p>
+    </header>
+    <div class="chart-wrap tall"><canvas id="sentimentMonthly"></canvas></div>
+  </section>
+
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Per-contact tone</h2>
+      <p class="hint">Top 50 contacts by message count. Δ = how warmly you write to them minus how warmly they write to you. Click a header to sort.</p>
+    </header>
+    <div class="table-wrap">
+      <table class="contacts-table">
+        <thead>
+          <tr>
+            <th class="num">#</th>
+            <th data-sort-col="display_name" data-sort-type="str">Name <span class="sort-arrow"></span></th>
+            <th>Identifier</th>
+            <th class="num" data-sort-col="total_messages">Total <span class="sort-arrow"></span></th>
+            <th class="num" data-sort-col="sent_sentiment_avg">You wrote <span class="sort-arrow"></span></th>
+            <th class="num" data-sort-col="received_sentiment_avg">They wrote <span class="sort-arrow"></span></th>
+            <th class="num">Δ</th>
+          </tr>
+        </thead>
+        <tbody id="tone-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <span id="meta-line"></span>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,17 +1,30 @@
-# Messages visualization
+# Messages Visualizer
 
-This repository includes a **local-only** web UI for exploring aggregated statistics from an exported macOS Apple Messages database. The original `chat.db` file is **never modified** by this project; a separate derived SQLite file is built for charts and API queries.
+A local-only intelligence platform for your Apple Messages history. Explore who you communicate with, how your relationships evolve over time, and draft context-aware replies — all without your data ever leaving your machine.
 
-## Project intent
+The original `chat.db` is **never modified**. A derived SQLite file (`viz.sqlite`) is built separately and powers all charts, queries, and the AI drafting assistant.
 
-- Keep processing on your machine; do not commit or upload `chat.db` or derived databases unless you intend to.
-- Import **read-only** snapshots from `chat.db` into a derived SQLite database used only by the local server and browser UI.
+---
+
+## What it does
+
+**Dashboard** — aggregate statistics across your full message history: top contacts by volume, sent/received ratios, active chats, date range, and total OTP and promotional messages received.
+
+**Authentication Stats** — timeline of one-time passwords and security codes, with a ranked breakdown of which services send the most.
+
+**Promo Stats** — promotional and marketing messages over time, categorized by sender.
+
+**Tone** — monthly AFINN sentiment analysis split by direction (you wrote vs. they wrote), plus a per-contact tone table showing warmth deltas across your top 50 relationships.
+
+**Drafter** — a dedicated AI drafting assistant. Select any contact, load their conversation context, configure an agent persona and tone, and generate a reply. Drafts are saved locally per contact. Powered by the Anthropic API; no message content is sent anywhere else.
+
+---
 
 ## Architecture
 
-- **ETL** — Node script reads `chat.db` (read-only) and writes a derived file at `data/viz.sqlite` by default (override with `VIZ_DB_PATH`).
-- **HTTP API** — Local Node server serves JSON from the derived database only.
-- **Frontend** — Static HTML and JavaScript in `public/`.
+- **ETL** — Node script reads `chat.db` and your AddressBook (both read-only) and writes a derived file at `data/viz.sqlite`.
+- **HTTP API** — Local Node server serves JSON from `viz.sqlite` only. Exposes both aggregate endpoints (used by the dashboard) and per-contact message endpoints (used by the Drafter).
+- **Frontend** — Static HTML and JavaScript in `public/`. No build step.
 
 ```mermaid
 flowchart LR
@@ -22,86 +35,95 @@ flowchart LR
   aliases[aliases_json]
   api[HTTP_API]
   ui[static_HTML]
+  anthropic[Anthropic_API]
   chat_db -->|read| etl
   address_book -->|read| etl
   etl -->|write| viz_db
   viz_db -->|query| api
   aliases -->|overlay| api
   api -->|JSON| ui
+  ui -->|draft_request| anthropic
+  anthropic -->|draft_response| ui
 ```
+
+The only outbound network call is from the Drafter to `api.anthropic.com`. Message content sent in that request is governed by Anthropic's API privacy policy. All other processing is local.
+
+---
 
 ## Privacy and data paths
 
-All defaults assume the standard macOS layout, so on a stock Mac you should be able to run `npm run import` with no environment variables set. Override only if your data lives elsewhere.
+All defaults assume the standard macOS layout. On a stock Mac, `npm run import` works with no environment variables set.
 
-- `data/` and database files are gitignored so originals and derived copies are never committed accidentally.
-- **`CHAT_DB_PATH`** — absolute path to your Messages `chat.db`. Defaults to `~/Library/Messages/chat.db`. Read-only.
-- **`ADDRESSBOOK_ROOT`** — directory containing AddressBook `.abcddb` files (one top-level db plus one per source). Defaults to `~/Library/Application Support/AddressBook`. Read-only. Used to autopopulate contact names; if unreadable, the import continues without names and the UI shows raw phone/email identifiers.
+- `data/` and all database files are gitignored. Originals and derived copies are never committed accidentally.
+- **`CHAT_DB_PATH`** — path to `chat.db`. Defaults to `~/Library/Messages/chat.db`. Read-only.
+- **`ADDRESSBOOK_ROOT`** — directory containing AddressBook `.abcddb` files. Defaults to `~/Library/Application Support/AddressBook`. Read-only. Used to populate contact names; the import continues without it if unreadable.
 - **`VIZ_DB_PATH`** — where the derived database is written. Defaults to `./data/viz.sqlite`.
-- **`ALIASES_PATH`** — where user-edited contact aliases are stored. Defaults to `./data/aliases.json`. Survives re-imports.
+- **`ALIASES_PATH`** — user-edited contact aliases. Defaults to `./data/aliases.json`. Survives re-imports.
 - **`PORT`** — server listen port. Defaults to `3000`.
+
+---
 
 ## Permissions
 
-The import script reads two paths inside `~/Library`. macOS protects these from terminal apps by default, so before the first `npm run import` you need to grant **Full Disk Access** to whichever terminal/IDE you'll run the command from:
+The import script reads two paths inside `~/Library`. macOS protects these from terminal apps by default. Before the first `npm run import`, grant **Full Disk Access** to your terminal:
 
-System Settings → Privacy & Security → Full Disk Access → add Terminal (or iTerm2, VS Code, etc.) and toggle it on. Quit and relaunch the terminal so the new permission takes effect.
+System Settings → Privacy & Security → Full Disk Access → add Terminal (or iTerm2, VS Code, etc.) → toggle on → quit and relaunch.
 
 If you skip this, the importer still runs but contact names won't autopopulate.
 
-## How to run (local)
+---
 
-Requires **Node.js 18+** (uses the built-in `node:sqlite` module — no native dependencies, no `npm install` step needed).
+## How to run
+
+Requires **Node.js 18+** (uses the built-in `node:sqlite` module — no native dependencies, no `npm install` needed).
 
 1. Grant Full Disk Access to your terminal (see above).
-2. `npm run import` — builds `data/viz.sqlite` from your live `chat.db` and AddressBook.
-3. `npm start` — starts the local server (default `http://localhost:3000`; override with `PORT=3001 npm start`).
+2. `npm run import` — builds `data/viz.sqlite` from `chat.db` and AddressBook.
+3. `npm start` — starts the local server at `http://localhost:3000` (override with `PORT=3001 npm start`).
 4. Open the URL in your browser.
 
-If you pull a newer version of this project, run `npm run import` again so `viz.sqlite` is rebuilt with any new tables or columns. Your aliases (`data/aliases.json`) are preserved across re-imports.
+After pulling a newer version of this project, run `npm run import` again to rebuild `viz.sqlite` with any new tables or columns. Your aliases (`data/aliases.json`) are preserved.
 
 ---
 
-## Initial Analysis of Apple Messages `chat.db`
+## API routes
 
-### Dataset Overview
-
-The uploaded SQLite database appears to be a valid macOS Apple Messages database.
-
-### High-Level Statistics
-
-| Metric                   |                 Value |
-| ------------------------ | --------------------: |
-| Total Messages           |                26,850 |
-| Total Chats / Threads    |                 1,188 |
-| Total Handles / Contacts |                 1,696 |
-| Total Attachments        |                 1,543 |
-| Database Type            | Apple Messages SQLite |
-
-The database contains both modern and recoverable/deleted-message infrastructure tables, suggesting a relatively recent macOS schema.
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/api/contacts` | Top contacts ranked by message volume |
+| `GET` | `/api/messages?handle=:handle&limit=:n` | Per-contact message thread (used by Drafter) |
+| `GET` | `/api/messages?chat_id=:id&limit=:n` | Per-group-chat message thread (used by Drafter) |
+| `GET` | `/api/stats` | Aggregate dashboard stats |
+| `GET` | `/api/tone` | Sentiment data by contact and month |
+| `GET` | `/api/auth` | OTP and authentication message data |
+| `GET` | `/api/promo` | Promotional message data |
 
 ---
 
-## Detected Core Tables
+## Pages
 
-The database contains the expected Apple Messages relational structure.
-
-## Important Tables
-
-| Table                      | Purpose                              |
-| -------------------------- | ------------------------------------ |
-| `message`                  | Core message records                 |
-| `chat`                     | Conversation threads                 |
-| `handle`                   | Contacts / phone numbers / Apple IDs |
-| `attachment`               | Attachment metadata                  |
-| `chat_message_join`        | Maps messages to threads             |
-| `message_attachment_join`  | Maps messages to attachments         |
-| `chat_handle_join`         | Maps contacts to chats               |
-| `deleted_messages`         | Deleted/recoverable message metadata |
-| `recoverable_message_part` | Partial recovery artifacts           |
-
-This is a strong foundation for longitudinal behavioral analysis.
+| File | Description |
+|------|-------------|
+| `public/index.html` | Main dashboard |
+| `public/auth.html` | Authentication stats |
+| `public/promo.html` | Promotional message stats |
+| `public/tone.html` | Sentiment and tone analysis |
+| `public/drafter.html` | AI-powered reply drafter |
 
 ---
 
+## Schema overview
 
+The ETL reads from these core Apple Messages tables:
+
+| Table | Purpose |
+|-------|---------|
+| `message` | Core message records |
+| `chat` | Conversation threads |
+| `handle` | Contacts / phone numbers / Apple IDs |
+| `attachment` | Attachment metadata |
+| `chat_message_join` | Maps messages to threads |
+| `message_attachment_join` | Maps messages to attachments |
+| `chat_handle_join` | Maps contacts to chats |
+| `deleted_messages` | Deleted/recoverable message metadata |
+| `recoverable_message_part` | Partial recovery artifacts |

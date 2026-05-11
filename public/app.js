@@ -245,6 +245,132 @@ function renderPromoStats(promoData) {
   }
 }
 
+// ---------- Sentiment (Tone tab) -------------------------------------------
+
+function renderSentimentMonthly(rows) {
+  const ctx = document.getElementById("sentimentMonthly");
+  if (!ctx) return;
+  if (charts.sentimentMonthly) charts.sentimentMonthly.destroy();
+  charts.sentimentMonthly = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: rows.map(r => r.ym),
+      datasets: [
+        { label: "You wrote",  data: rows.map(r => r.sent_avg),     borderColor: palette.send, backgroundColor: palette.send + "33", tension: 0.25, fill: false, spanGaps: true },
+        { label: "They wrote", data: rows.map(r => r.received_avg), borderColor: palette.recv, backgroundColor: palette.recv + "33", tension: 0.25, fill: false, spanGaps: true },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        x: { ticks: { color: palette.muted, maxTicksLimit: 18 }, grid: { display: false } },
+        y: {
+          ticks: { color: palette.muted, callback: (v) => v.toFixed(2) },
+          grid: { color: "rgba(128,128,128,0.1)" },
+          title: { display: true, text: "Avg sentiment (AFINN)", color: palette.muted },
+        },
+      },
+      plugins: {
+        legend: { labels: { color: palette.ink } },
+        tooltip: {
+          callbacks: {
+            afterLabel: (item) => {
+              const r = rows[item.dataIndex];
+              return item.datasetIndex === 0
+                ? `n=${fmt.format(r.sent_count || 0)}`
+                : `n=${fmt.format(r.received_count || 0)}`;
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+// Track sort state across re-renders so toggling a header twice flips order.
+const toneTableState = { col: "total_messages", dir: "desc" };
+
+function renderToneTable(rows) {
+  const tbody = document.getElementById("tone-tbody");
+  if (!tbody) return;
+  const sorted = [...rows].sort(compareTone);
+  tbody.innerHTML = "";
+  sorted.forEach((r, i) => {
+    const tr = el("tr");
+    tr.append(el("td", { class: "num" }, String(i + 1)));
+    tr.append(el("td", {}, r.display_name || r.identifier));
+    tr.append(el("td", { class: "identifier" }, r.identifier));
+    tr.append(el("td", { class: "num" }, fmt.format(r.total_messages)));
+    tr.append(el("td", { class: `num ${sentimentClass(r.sent_sentiment_avg)}` }, fmtSentiment(r.sent_sentiment_avg)));
+    tr.append(el("td", { class: `num ${sentimentClass(r.received_sentiment_avg)}` }, fmtSentiment(r.received_sentiment_avg)));
+    const delta = (r.sent_sentiment_avg != null && r.received_sentiment_avg != null)
+      ? r.sent_sentiment_avg - r.received_sentiment_avg : null;
+    tr.append(el("td", { class: `num ${sentimentClass(delta)}` }, fmtSentiment(delta)));
+    tbody.append(tr);
+  });
+  updateSortIndicators();
+}
+
+function compareTone(a, b) {
+  const { col, dir } = toneTableState;
+  const av = a[col];
+  const bv = b[col];
+  // Nulls sort last regardless of direction.
+  if (av == null && bv == null) return 0;
+  if (av == null) return 1;
+  if (bv == null) return -1;
+  if (typeof av === "string") {
+    return dir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+  }
+  return dir === "asc" ? av - bv : bv - av;
+}
+
+function fmtSentiment(v) {
+  if (v == null) return "—";
+  const sign = v > 0 ? "+" : "";
+  return `${sign}${v.toFixed(2)}`;
+}
+
+function sentimentClass(v) {
+  if (v == null) return "";
+  if (v > 0.1) return "tone-pos";
+  if (v < -0.1) return "tone-neg";
+  return "tone-neutral";
+}
+
+function attachToneSortHandlers(rows) {
+  const headers = document.querySelectorAll("[data-sort-col]");
+  headers.forEach((th) => {
+    th.addEventListener("click", () => {
+      const col = th.dataset.sortCol;
+      if (toneTableState.col === col) {
+        toneTableState.dir = toneTableState.dir === "asc" ? "desc" : "asc";
+      } else {
+        toneTableState.col = col;
+        // Strings default to ascending (A→Z); numbers to descending (big→small).
+        toneTableState.dir = th.dataset.sortType === "str" ? "asc" : "desc";
+      }
+      renderToneTable(rows);
+    });
+  });
+}
+
+function updateSortIndicators() {
+  document.querySelectorAll("[data-sort-col]").forEach((th) => {
+    const arrow = th.querySelector(".sort-arrow");
+    if (!arrow) return;
+    if (th.dataset.sortCol === toneTableState.col) {
+      arrow.textContent = toneTableState.dir === "asc" ? "↑" : "↓";
+      th.classList.add("sort-active");
+    } else {
+      arrow.textContent = "";
+      th.classList.remove("sort-active");
+    }
+  });
+}
+
 // ---------- Hourly heatmap (CSS grid) ---------------------------------------
 
 function renderHeatmap({ grid }) {
@@ -541,6 +667,18 @@ async function refreshContactViews() {
     renderReciprocity(recip);
     renderAuthStats(authStats);
     renderPromoStats(promoStats);
+
+    // Tone page only — gate by presence of the page's elements so the main
+    // dashboard doesn't pay for these two extra fetches.
+    if (document.getElementById("sentimentMonthly") || document.getElementById("tone-tbody")) {
+      const [sentMonthly, contactTone] = await Promise.all([
+        fetchJSON("/api/sentiment-monthly"),
+        fetchJSON("/api/contact-sentiment?limit=50"),
+      ]);
+      renderSentimentMonthly(sentMonthly);
+      renderToneTable(contactTone);
+      attachToneSortHandlers(contactTone);
+    }
   } catch (e) {
     console.error(e);
     document.body.append(el("pre", { class: "panel" }, `Failed to load: ${e.message}`));
