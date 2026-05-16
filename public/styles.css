@@ -623,3 +623,54 @@ input[type="search"] {
   color: var(--muted);
   white-space: nowrap;
 }
+
+/* ---- Collapsible options section ---- */
+
+.draft-options {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 16px 0 8px;
+}
+
+.draft-options-summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 10px 14px;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+
+.draft-options-summary::-webkit-details-marker { display: none; }
+
+.draft-options-summary::before {
+  content: "▶";
+  font-size: 9px;
+  transition: transform 0.15s;
+  display: inline-block;
+}
+
+.draft-options[open] .draft-options-summary::before {
+  transform: rotate(90deg);
+}
+
+.draft-options-summary:hover { color: var(--ink); }
+
+.draft-options > *:not(summary) {
+  padding: 0 14px;
+}
+
+.draft-options > .block-label,
+.draft-options > .draft-config {
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
+.draft-options[open] > summary {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 8px;
+}
