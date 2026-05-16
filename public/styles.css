@@ -559,3 +559,67 @@ input[type="search"] {
   padding: 16px;
   text-align: center;
 }
+
+/* ---- Contact list filter tabs ---- */
+
+.filter-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.filter-tab {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.filter-tab:hover { border-color: var(--accent); color: var(--ink); }
+
+.filter-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+/* ---- Optional context picker ---- */
+
+.context-option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.context-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 5px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.context-option:hover { background: var(--accent-soft); }
+
+.context-option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-option-count {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}

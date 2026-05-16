@@ -38,6 +38,7 @@
       <h2>Pick a contact or group</h2>
       <p class="hint">Top 50 direct contacts plus active group chats, ranked by volume.</p>
     </header>
+    <div id="contact-filter-tabs" class="filter-tabs"></div>
     <input id="contact-search" type="search" placeholder="Filter by name or identifier…" autocomplete="off">
     <div id="contact-list" class="contact-list"></div>
   </section>
@@ -77,6 +78,8 @@
 
     <h3 class="section-sub">Conversation preview</h3>
     <div id="thread-preview" class="thread-preview"></div>
+
+    <div id="optional-context-section" hidden></div>
 
     <div class="draft-actions">
       <button id="generate-btn" type="button" class="primary">Generate draft</button>

@@ -37,12 +37,14 @@ const TONE_INSTRUCTIONS = {
 
 // Pre-2020 iMessage tapbacks land in chat.db as ordinary messages with bodies
 // like: Liked "their actual text". Filtering them keeps Drafter context clean.
-const TAPBACK_RX = /^(Liked|Loved|Disliked|Laughed at|Emphasized|Questioned|Removed [a-z ]+) ["“”].+/;
+const TAPBACK_RX = /^(Liked|Loved|Disliked|Laughed at|Emphasized|Questioned|Removed [a-z ]+) ["""].+/;
 
-let target = null;          // { kind: 'handle'|'chat', id, label, sublabel, isGroup, count }
-let thread = [];            // filtered messages currently displayed
+let target = null;           // { kind: 'handle'|'chat', id, label, sublabel, isGroup, count }
+let thread = [];             // filtered messages currently displayed
 let allContacts = [];
 let allGroups = [];
+let filterType = "all";      // 'all' | 'contacts' | 'groups'
+let additionalContexts = []; // [{ kind, id, label, messages }]
 
 async function fetchJSON(url) {
   const r = await fetch(url);
@@ -79,6 +81,24 @@ function setRadio(name, value) {
   });
 }
 
+// ---- Contact list filter tabs ---------------------------------------------
+
+function renderFilterTabs() {
+  const root = $("contact-filter-tabs");
+  root.innerHTML = "";
+  for (const [value, label] of [["all", "All"], ["contacts", "Direct"], ["groups", "Groups"]]) {
+    root.append(el("button", {
+      class: "filter-tab" + (filterType === value ? " active" : ""),
+      type: "button",
+      onclick: () => {
+        filterType = value;
+        renderFilterTabs();
+        renderContactList($("contact-search").value);
+      },
+    }, label));
+  }
+}
+
 // ---- Contact list ---------------------------------------------------------
 
 function renderContactList(filter = "") {
@@ -86,24 +106,29 @@ function renderContactList(filter = "") {
   root.innerHTML = "";
   const f = filter.trim().toLowerCase();
 
-  const items = [
-    ...allContacts.map((c) => ({
-      kind: "handle",
-      id: c.identifier,
-      label: c.display_name || c.identifier,
-      sublabel: c.display_name ? c.identifier : "",
-      count: c.total_messages,
-      isGroup: false,
-    })),
-    ...allGroups.map((g) => ({
-      kind: "chat",
-      id: g.chat_id,
-      label: g.display_name || g.chat_identifier || `Group ${g.chat_id}`,
-      sublabel: "Group chat",
-      count: g.total_messages,
-      isGroup: true,
-    })),
-  ].filter((item) =>
+  const contactItems = allContacts.map((c) => ({
+    kind: "handle",
+    id: c.identifier,
+    label: c.display_name || c.identifier,
+    sublabel: c.display_name ? c.identifier : "",
+    count: c.total_messages,
+    isGroup: false,
+  }));
+
+  const groupItems = allGroups.map((g) => ({
+    kind: "chat",
+    id: g.chat_id,
+    label: g.display_name || g.chat_identifier || `Group ${g.chat_id}`,
+    sublabel: "Group chat",
+    count: g.total_messages,
+    isGroup: true,
+  }));
+
+  const pool = filterType === "contacts" ? contactItems
+             : filterType === "groups"   ? groupItems
+             : [...contactItems, ...groupItems];
+
+  const items = pool.filter((item) =>
     !f
     || item.label.toLowerCase().includes(f)
     || (item.sublabel && item.sublabel.toLowerCase().includes(f))
@@ -137,6 +162,8 @@ function renderContactList(filter = "") {
 
 async function selectTarget(item) {
   target = item;
+  additionalContexts = [];
+
   const key = targetKey(item);
   const s = STORE.settings(key);
 
@@ -156,6 +183,7 @@ async function selectTarget(item) {
 
   renderContactList($("contact-search").value);
   await loadThread();
+  renderOptionalContextPicker();
 }
 
 async function loadThread() {
@@ -204,6 +232,88 @@ function renderThread() {
   root.scrollTop = root.scrollHeight;
 }
 
+// ---- Optional additional context -----------------------------------------
+
+async function toggleAdditionalContext(item, checked) {
+  // Always remove first so toggling on re-fetches a fresh copy.
+  additionalContexts = additionalContexts.filter(
+    (c) => !(c.kind === item.kind && String(c.id) === String(item.id))
+  );
+  if (!checked) return;
+
+  const limit = Number(getRadio("context")) || 50;
+  const url = item.kind === "handle"
+    ? `/api/messages?handle=${encodeURIComponent(item.id)}&limit=${limit}`
+    : `/api/messages?chat_id=${item.id}&limit=${limit}`;
+
+  try {
+    const data = await fetchJSON(url);
+    const messages = (data.messages || []).filter(
+      (m) => m.text && !TAPBACK_RX.test(m.text)
+    );
+    additionalContexts.push({ kind: item.kind, id: item.id, label: item.label, messages });
+  } catch (e) {
+    console.error("Failed to load additional context:", e);
+  }
+}
+
+function renderOptionalContextPicker() {
+  const section = $("optional-context-section");
+  if (!target) { section.hidden = true; return; }
+
+  // For a direct contact, offer group chats as supplemental context.
+  // For a group thread, offer direct contacts as supplemental context.
+  const options = target.kind === "handle"
+    ? allGroups.map((g) => ({
+        kind: "chat",
+        id: g.chat_id,
+        label: g.display_name || g.chat_identifier || `Group ${g.chat_id}`,
+        count: g.total_messages,
+      }))
+    : allContacts.map((c) => ({
+        kind: "handle",
+        id: c.identifier,
+        label: c.display_name || c.identifier,
+        count: c.total_messages,
+      }));
+
+  if (options.length === 0) { section.hidden = true; return; }
+
+  section.hidden = false;
+  section.innerHTML = "";
+
+  section.append(el("h3", { class: "section-sub" },
+    target.kind === "handle"
+      ? "Optional: include group context"
+      : "Optional: include direct message context"
+  ));
+  section.append(el("p", { class: "hint" },
+    target.kind === "handle"
+      ? "Add recent messages from a group chat as supplementary background. The primary draft context remains the direct conversation above."
+      : "Add a direct message thread as supplementary background. The primary draft context remains the group thread above."
+  ));
+
+  const list = el("div", { class: "context-option-list" });
+  for (const opt of options) {
+    const isChecked = additionalContexts.some(
+      (c) => c.kind === opt.kind && String(c.id) === String(opt.id)
+    );
+    const cb = el("input", { type: "checkbox" });
+    cb.checked = isChecked;
+    cb.addEventListener("change", async (e) => {
+      cb.disabled = true;
+      await toggleAdditionalContext(opt, e.target.checked);
+      cb.disabled = false;
+    });
+    list.append(el("label", { class: "context-option" }, [
+      cb,
+      el("span", { class: "context-option-label" }, opt.label),
+      el("span", { class: "context-option-count" }, `${fmt.format(opt.count)} msgs`),
+    ]));
+  }
+  section.append(list);
+}
+
 // ---- Generate draft -------------------------------------------------------
 
 async function generateDraft() {
@@ -223,6 +333,7 @@ async function generateDraft() {
   const instructions = $("instructions").value.trim();
   const model = STORE.model();
 
+  // System prompt
   const systemParts = [
     target.kind === "chat"
       ? `You are drafting a message reply on behalf of the user (referred to as "Me") in a group chat.`
@@ -230,10 +341,17 @@ async function generateDraft() {
     `Tone guidance: ${TONE_INSTRUCTIONS[tone]}`,
   ];
   if (persona) systemParts.push(`Persona: ${persona}`);
+  if (additionalContexts.length > 0) {
+    systemParts.push(
+      `Supplementary context from other threads is provided after the primary conversation. ` +
+      `Use it only as background — the primary thread is the conversation being replied to.`
+    );
+  }
   systemParts.push(`Output only the draft text, with no preamble, quotes, or commentary.`);
   const systemPrompt = systemParts.join("\n\n");
 
-  const lines = thread.map((m) => {
+  // Primary context — direct messages for contacts, group thread for groups.
+  const primaryLines = thread.map((m) => {
     const author = m.is_from_me
       ? "Me"
       : (target.kind === "chat"
@@ -241,10 +359,30 @@ async function generateDraft() {
           : target.label);
     return `${author}: ${m.text}`;
   });
-  const ctxHeader = target.kind === "chat"
-    ? `Recent group chat (${thread.length} messages, oldest → newest):`
-    : `Recent conversation with ${target.label} (${thread.length} messages, oldest → newest):`;
-  const userParts = [ctxHeader, lines.join("\n")];
+  const primaryHeader = target.kind === "chat"
+    ? `Group chat — ${target.label} (${thread.length} messages, oldest → newest):`
+    : `Direct conversation with ${target.label} (${thread.length} messages, oldest → newest):`;
+
+  const userParts = [primaryHeader, primaryLines.join("\n")];
+
+  // Optional supplementary contexts appended after primary.
+  for (const ctx of additionalContexts) {
+    if (ctx.messages.length === 0) continue;
+    const ctxLines = ctx.messages.map((m) => {
+      const author = m.is_from_me
+        ? "Me"
+        : (ctx.kind === "chat"
+            ? (m.author_display_name || m.author_identifier || "Unknown")
+            : ctx.label);
+      return `${author}: ${m.text}`;
+    });
+    const ctxHeader = ctx.kind === "chat"
+      ? `Supplementary context — group chat "${ctx.label}" (${ctx.messages.length} messages, oldest → newest):`
+      : `Supplementary context — direct thread with ${ctx.label} (${ctx.messages.length} messages, oldest → newest):`;
+    userParts.push(ctxHeader);
+    userParts.push(ctxLines.join("\n"));
+  }
+
   if (instructions) userParts.push(`Additional instructions: ${instructions}`);
   userParts.push(`Draft a reply.`);
   const userContent = userParts.join("\n\n");
@@ -314,7 +452,12 @@ function attachHandlers() {
       s.tone = getRadio("tone");
       s.context = Number(getRadio("context"));
       STORE.setSettings(key, s);
-      if (r.name === "context") loadThread();
+      if (r.name === "context") {
+        // Context window change invalidates any fetched additional context.
+        additionalContexts = [];
+        renderOptionalContextPicker();
+        loadThread();
+      }
     });
   });
 
@@ -354,6 +497,7 @@ function attachHandlers() {
 
 (async function init() {
   attachHandlers();
+  renderFilterTabs();
   try {
     const [contacts, chats] = await Promise.all([
       fetchJSON("/api/contacts/top?limit=50"),
