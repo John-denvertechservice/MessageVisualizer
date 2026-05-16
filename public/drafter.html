@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Drafter - Messages Visualizer</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <h1>Drafter</h1>
+    <p class="sub"><a href="/">← Back to Dashboard</a></p>
+  </header>
+
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Settings</h2>
+      <p class="hint">Your Anthropic API key is stored only in this browser's <code>localStorage</code> and is sent only to <code>api.anthropic.com</code>. <a href="https://console.anthropic.com/" target="_blank" rel="noopener">Get a key</a>.</p>
+    </header>
+    <div class="settings-grid">
+      <label class="block-label">
+        <span>API key</span>
+        <input id="api-key" type="password" placeholder="sk-ant-..." autocomplete="off">
+      </label>
+      <label class="block-label">
+        <span>Model</span>
+        <select id="model">
+          <option value="claude-opus-4-7">Opus 4.7</option>
+          <option value="claude-sonnet-4-6" selected>Sonnet 4.6</option>
+          <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+        </select>
+      </label>
+    </div>
+  </section>
+
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Pick a contact or group</h2>
+      <p class="hint">Top 50 direct contacts plus active group chats, ranked by volume.</p>
+    </header>
+    <div id="contact-filter-tabs" class="filter-tabs"></div>
+    <input id="contact-search" type="search" placeholder="Filter by name or identifier…" autocomplete="off">
+    <div id="contact-list" class="contact-list"></div>
+  </section>
+
+  <section class="panel" id="drafting-panel" hidden>
+    <header class="panel-head">
+      <h2 id="drafting-title">—</h2>
+      <p class="hint" id="drafting-sub"></p>
+    </header>
+
+    <h3 class="section-sub">Conversation preview</h3>
+    <div id="thread-preview" class="thread-preview"></div>
+
+    <details class="draft-options">
+      <summary class="draft-options-summary">Options</summary>
+
+      <div id="optional-context-section" hidden></div>
+
+      <label class="block-label">
+        <span>Persona (optional, per-contact)</span>
+        <textarea id="persona" rows="2" placeholder="e.g., I'm replying as a thoughtful older brother who values brevity."></textarea>
+      </label>
+
+      <div class="draft-config">
+        <fieldset>
+          <legend>Tone</legend>
+          <label><input type="radio" name="tone" value="casual"> Casual</label>
+          <label><input type="radio" name="tone" value="warm" checked> Warm</label>
+          <label><input type="radio" name="tone" value="direct"> Direct</label>
+          <label><input type="radio" name="tone" value="formal"> Formal</label>
+        </fieldset>
+        <fieldset>
+          <legend>Context window</legend>
+          <label><input type="radio" name="context" value="20"> 20</label>
+          <label><input type="radio" name="context" value="50" checked> 50</label>
+          <label><input type="radio" name="context" value="100"> 100</label>
+          <label><input type="radio" name="context" value="200"> 200</label>
+        </fieldset>
+      </div>
+
+      <label class="block-label">
+        <span>Additional instructions (optional, per-contact)</span>
+        <textarea id="instructions" rows="2" placeholder="Anything specific for this draft."></textarea>
+      </label>
+    </details>
+
+    <div class="draft-actions">
+      <button id="generate-btn" type="button" class="primary">Generate draft</button>
+      <span id="generate-status" class="status-text"></span>
+    </div>
+
+    <label class="block-label">
+      <span>Draft (auto-saved)</span>
+      <textarea id="draft" rows="6" placeholder="Click 'Generate draft' to populate, or write your own."></textarea>
+    </label>
+
+    <div class="draft-actions">
+      <button id="copy-btn" type="button">Copy</button>
+      <button id="clear-btn" type="button">Clear</button>
+    </div>
+  </section>
+
+  <footer>
+    <span class="status-text">Drafts are stored locally per contact and never leave this browser.</span>
+  </footer>
+
+  <script src="/drafter.js"></script>
+</body>
+</html>

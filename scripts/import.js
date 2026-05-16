@@ -119,6 +119,7 @@ function buildSchema(viz) {
       dow INTEGER,
       hour INTEGER,
       text_len INTEGER,
+      text TEXT,
       has_attachment INTEGER,
       service TEXT,
       item_type INTEGER,
@@ -329,9 +330,9 @@ function importMessages(chat, viz, oneOnOne) {
   const insert = viz.prepare(`
     INSERT INTO messages (
       message_id, chat_id, handle_id, is_from_me, ts_unix,
-      year, month, dow, hour, text_len, has_attachment,
+      year, month, dow, hour, text_len, text, has_attachment,
       service, item_type, is_reaction, auth_type, promo_type
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   let count = 0;
@@ -403,6 +404,7 @@ function importMessages(chat, viz, oneOnOne) {
       d.getDay(),
       d.getHours(),
       r.text_len ?? 0,
+      r.text ?? null,
       r.has_attachment ? 1 : 0,
       r.service,
       r.item_type ?? 0,
@@ -693,7 +695,7 @@ function main() {
   buildNlpAggregates(viz, nlpByHandle, sentByMonth);
 
   writeMeta(viz, {
-    schema_version: "2",
+    schema_version: "3",
     imported_at: new Date().toISOString(),
     source_chat_db: CHAT_DB_PATH,
     source_chat_db_size: statSync(CHAT_DB_PATH).size,

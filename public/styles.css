@@ -333,3 +333,344 @@ footer {
   color: var(--accent);
   margin-left: 2px;
 }
+
+/* ---- Drafter page ---- */
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  gap: 16px;
+  align-items: end;
+}
+
+.block-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0;
+}
+
+.block-label > span {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+input[type="password"],
+input[type="search"],
+select,
+textarea {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  width: 100%;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 56px;
+  line-height: 1.45;
+}
+
+input[type="search"] {
+  margin-bottom: 12px;
+}
+
+.contact-list {
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.contact-item {
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: inherit;
+  color: var(--ink);
+}
+
+.contact-item:last-child { border-bottom: none; }
+.contact-item:hover { background: var(--accent-soft); }
+.contact-item.active { background: var(--accent-soft); }
+
+.contact-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.contact-label { font-weight: 500; font-size: 13px; }
+.contact-sub {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.contact-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.group-flag {
+  background: var(--accent);
+  color: white;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.draft-config {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 16px 0 8px;
+}
+
+.draft-config fieldset {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 12px 10px;
+  margin: 0;
+}
+
+.draft-config legend {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 4px;
+}
+
+.draft-config label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.section-sub {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 16px 0 8px;
+  color: var(--ink);
+}
+
+.thread-preview {
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.thread-msg {
+  border-radius: 10px;
+  padding: 6px 10px;
+  max-width: 80%;
+  font-size: 13px;
+}
+
+.thread-msg.me {
+  background: var(--accent-soft);
+  align-self: flex-end;
+}
+
+.thread-msg.them {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  align-self: flex-start;
+}
+
+.thread-author {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+
+.thread-text { white-space: pre-wrap; word-wrap: break-word; }
+
+.thread-time {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.draft-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.draft-actions button {
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.draft-actions button:hover { border-color: var(--accent); }
+.draft-actions button.primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.draft-actions button.primary:hover { filter: brightness(1.05); }
+.draft-actions button:disabled { opacity: 0.6; cursor: not-allowed; filter: none; }
+
+.status-text {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.empty-state {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 16px;
+  text-align: center;
+}
+
+/* ---- Contact list filter tabs ---- */
+
+.filter-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.filter-tab {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.filter-tab:hover { border-color: var(--accent); color: var(--ink); }
+
+.filter-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+/* ---- Optional context picker ---- */
+
+.context-option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.context-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 5px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.context-option:hover { background: var(--accent-soft); }
+
+.context-option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-option-count {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ---- Collapsible options section ---- */
+
+.draft-options {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 16px 0 8px;
+}
+
+.draft-options-summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 10px 14px;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+
+.draft-options-summary::-webkit-details-marker { display: none; }
+
+.draft-options-summary::before {
+  content: "▶";
+  font-size: 9px;
+  transition: transform 0.15s;
+  display: inline-block;
+}
+
+.draft-options[open] .draft-options-summary::before {
+  transform: rotate(90deg);
+}
+
+.draft-options-summary:hover { color: var(--ink); }
+
+.draft-options > *:not(summary) {
+  padding: 0 14px;
+}
+
+.draft-options > .block-label,
+.draft-options > .draft-config {
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
+.draft-options[open] > summary {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 8px;
+}

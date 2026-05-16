@@ -305,6 +305,87 @@ function apiContactSentiment(limit) {
   return applyAliases(rows);
 }
 
+function apiMessagesByHandle(identifier, limit) {
+  // Resolve identifier -> all handle_ids it owns. contact_summary collapses
+  // iMessage + SMS handles for the same number into one identifier; we want
+  // both threads merged in the result.
+  const summary = db.prepare(`
+    SELECT identifier, display_name, total_messages, handle_ids
+    FROM contact_summary
+    WHERE identifier = ?
+  `).get(identifier);
+  if (!summary || !summary.handle_ids) {
+    return { contact: null, messages: [] };
+  }
+  const handleIds = String(summary.handle_ids)
+    .split(",")
+    .map((s) => Number.parseInt(s, 10))
+    .filter(Number.isFinite);
+  if (handleIds.length === 0) return { contact: applyAliases([summary])[0], messages: [] };
+
+  const placeholders = handleIds.map(() => "?").join(",");
+  // Secondary sort on message_id keeps ordering stable when two rows share
+  // the same ts_unix (rare but possible — chat.db rounds to the second).
+  const rows = db.prepare(`
+    SELECT message_id, is_from_me, ts_unix, text, has_attachment
+    FROM messages
+    WHERE handle_id IN (${placeholders})
+      AND item_type = 0
+      AND is_reaction = 0
+    ORDER BY ts_unix DESC, message_id DESC
+    LIMIT ?
+  `).all(...handleIds, limit);
+
+  return {
+    contact: applyAliases([summary])[0],
+    // Reverse so the response reads chronologically — easier for the Drafter
+    // to feed straight into an LLM prompt without re-sorting client-side.
+    messages: rows.reverse(),
+  };
+}
+
+function apiMessagesByChat(chatId, limit) {
+  const chat = db.prepare(`
+    SELECT chat_id, display_name, chat_identifier, is_group, total_messages
+    FROM chat_summary
+    WHERE chat_id = ?
+  `).get(chatId);
+  if (!chat) return { chat: null, messages: [] };
+
+  const rows = db.prepare(`
+    SELECT
+      m.message_id,
+      m.is_from_me,
+      m.ts_unix,
+      m.text,
+      m.has_attachment,
+      m.handle_id        AS author_handle_id,
+      c.identifier       AS author_identifier,
+      c.display_name     AS author_display_name
+    FROM messages m
+    LEFT JOIN contacts c ON c.handle_id = m.handle_id
+    WHERE m.chat_id = ?
+      AND m.item_type = 0
+      AND m.is_reaction = 0
+    ORDER BY m.ts_unix DESC, m.message_id DESC
+    LIMIT ?
+  `).all(chatId, limit);
+
+  // Overlay user-set aliases on each author. applyAliases keys on identifier
+  // and writes display_name, so re-shape the row, alias it, then map fields
+  // back. Authors with no identifier (system rows, deleted handles) are left
+  // as-is.
+  const aliased = rows.map((m) => {
+    if (!m.author_identifier) return m;
+    const [a] = applyAliases([
+      { identifier: m.author_identifier, display_name: m.author_display_name },
+    ]);
+    return { ...m, author_display_name: a.display_name };
+  });
+
+  return { chat, messages: aliased.reverse() };
+}
+
 function apiContactTopTerms(identifier) {
   const terms = db.prepare(`
     SELECT rank, term, score
@@ -417,6 +498,21 @@ const server = createServer(async (req, res) => {
       const id = url.searchParams.get("identifier");
       if (!id) return sendError(res, 400, "identifier required");
       return sendJSON(res, 200, apiContactTopTerms(id));
+    }
+    if (path === "/api/messages") {
+      const handle = url.searchParams.get("handle");
+      const chatIdRaw = url.searchParams.get("chat_id");
+      if (handle && chatIdRaw) {
+        return sendError(res, 400, "specify handle or chat_id, not both");
+      }
+      const limit = clampInt(url.searchParams.get("limit"), 1, 500, 50);
+      if (handle) return sendJSON(res, 200, apiMessagesByHandle(handle, limit));
+      if (chatIdRaw) {
+        const chatId = Number.parseInt(chatIdRaw, 10);
+        if (!Number.isFinite(chatId)) return sendError(res, 400, "invalid chat_id");
+        return sendJSON(res, 200, apiMessagesByChat(chatId, limit));
+      }
+      return sendError(res, 400, "handle or chat_id required");
     }
     if (path.startsWith("/api/")) {
       return sendError(res, 404, "unknown endpoint");
